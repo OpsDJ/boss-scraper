@@ -1,0 +1,10 @@
+.venv/
+browser_data/
+__pycache__/
+*.pyc
+boss_jobs.csv
+boss_jobs.xlsx
+greeted.txt
+city.json
+city.txt
+.claude/
