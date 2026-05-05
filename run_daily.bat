@@ -1,4 +1,3 @@
 @echo off
 cd /d "%~dp0"
-call .venv\Scripts\activate.bat
-python scheduler.py
+.venv\Scripts\python.exe scheduler.py
