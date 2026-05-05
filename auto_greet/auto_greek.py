@@ -24,10 +24,12 @@ DEEPSEEK_MODEL = DS["model"]
 MY_PROFILE = CONFIG["profile"]
 
 GREET = CONFIG["auto_greet"]
-TARGET_CITIES = GREET["target_cities"]
 BASE_DELAY = GREET["base_delay"]
 MAX_RETRIES = GREET["max_retries"]
 RATE_LIMIT_COOLDOWN = GREET["rate_limit_cooldown"]
+
+SEARCH = CONFIG["search"]
+KEYWORD = SEARCH["keyword"]
 
 job_detail_api = "https://www.zhipin.com/wapi/zpgeek/job/detail.json"
 friend_add_api = "https://www.zhipin.com/wapi/zpgeek/friend/add.json"
@@ -55,7 +57,7 @@ def is_need_login(result):
 
 def wait_for_login():
     """等待用户登录"""
-    url = f"{search_base}?city=101280600&query=数据"
+    url = f"{search_base}?city=101280100&query={KEYWORD}"  # 用广州作为默认登录页
     tab.get(url)
     time.sleep(3)
 
@@ -239,7 +241,6 @@ def evaluate_job(row):
 公司：{row.get('brandName', '')}
 行业：{row.get('brandIndustry', '')}
 公司规模：{row.get('brandScaleName', '')}
-BOSS活跃度：{row.get('activeTimeDesc', '')}
 职位描述：
 {desc[:1500]}
 """
@@ -357,8 +358,10 @@ for i, (idx, row) in enumerate(df.iterrows()):
         rejected.append(row)
         print(f"[{i + 1}/{len(df)}] {row['jobName']} @ {row['brandName']} — ❌ 不投({score}分) {reason}")
 
-    with open(eval_file, "w", encoding="utf-8") as f:
+    tmp = eval_file + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(evaluations, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, eval_file)  # 原子操作，防止中断损坏文件
 
     time.sleep(0.5)
 
@@ -391,7 +394,7 @@ if os.path.exists(greeted_file):
                     greeted.add((parts[0], parts[1]))
 
 # 提取 lid
-tab.get(f"{search_base}?city=101280600&query=数据")
+tab.get(f"{search_base}?city=101280100&query={KEYWORD}")
 time.sleep(3)
 lid = tab.run_js("""
     try {

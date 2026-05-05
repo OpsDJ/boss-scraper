@@ -193,23 +193,29 @@ def collect_jobs_from_page(data):
             new_count += 1
     return new_count
 
-def scrape_city(city_code, city_name):
-    """采集单个城市的所有分页岗位，返回 (新增岗位数, 状态)"""
+def scrape_city(city_code, city_name, first_page_data=None):
+    """采集单个城市的所有分页岗位，返回 (新增岗位数, 状态)。
+    若传入 first_page_data 则直接使用，不再请求第一页。"""
     search_url = f"https://www.zhipin.com/web/geek/jobs?city={city_code}&{URL_FILTERS}&query={KEYWORD}"
-    tab.listen.stop()
-    tab.listen.start(targets=job_list_api)
-    tab.get(search_url)
 
-    # 等待第一页
-    try:
-        res = tab.listen.wait(timeout=15)
-        data = res.response.body
-        if data and "zpData" in data and "jobList" in data["zpData"]:
-            city_added = collect_jobs_from_page(data)
-        else:
+    if first_page_data:
+        city_added = collect_jobs_from_page(first_page_data)
+    else:
+        try:
+            tab.listen.stop()
+        except Exception:
+            pass
+        tab.listen.start(targets=job_list_api)
+        tab.get(search_url)
+        try:
+            res = tab.listen.wait(timeout=15)
+            data = res.response.body
+            if data and "zpData" in data and "jobList" in data["zpData"]:
+                city_added = collect_jobs_from_page(data)
+            else:
+                return 0, "失败"
+        except Exception:
             return 0, "失败"
-    except Exception:
-        return 0, "失败"
 
     page = 1
     consecutive_errors = 0
@@ -283,13 +289,18 @@ print("=" * 50)
 print(f"阶段一：逐城市采集（{len(selected_cities)} 个城市，每城 {MAX_PAGES} 页）")
 print("=" * 50)
 
-# 首次登录
-first_city_code, first_city_name = selected_cities[0]
-first_url = f"https://www.zhipin.com/web/geek/jobs?city={first_city_code}&{URL_FILTERS}&query={KEYWORD}"
-wait_for_login(first_url)
+# 首次登录（取第一个未完成的城市作为登录页）
+pending_cities = [(c, n) for c, n in selected_cities if completed_cities.get(c) != "完成"]
+if not pending_cities:
+    print("所有城市已完成采集，直接进入阶段二")
+    login_data = None
+else:
+    first_code, first_name = pending_cities[0]
+    first_url = f"https://www.zhipin.com/web/geek/jobs?city={first_code}&{URL_FILTERS}&query={KEYWORD}"
+    login_data = wait_for_login(first_url)
 
 total_city_jobs = 0
-need_login = False
+login_used = False
 
 for idx, (city_code, city_name) in enumerate(selected_cities):
     prev_status = completed_cities.get(city_code, "")
@@ -300,16 +311,21 @@ for idx, (city_code, city_name) in enumerate(selected_cities):
 
     print(f"\n[{idx + 1}/{len(selected_cities)}] {city_name} ({city_code})", end="")
 
-    city_added, status = scrape_city(city_code, city_name)
+    # 首个未完成城市复用登录时已获取的第一页数据，避免重复请求
+    first_page = login_data if not login_used else None
+    login_used = True
+    city_added, status = scrape_city(city_code, city_name, first_page_data=first_page)
     total_city_jobs += city_added
 
     print(f" → +{city_added} 条({status})，累计 {len(all_jobs)} 条")
 
-    # 记录进度（每次全量写入，避免重复行）
+    # 记录进度（原子写入，避免重复行和中断损坏）
     completed_cities[city_code] = status
-    with open(progress_file, "w", encoding="utf-8") as f:
+    tmp = progress_file + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         for code, st in completed_cities.items():
             f.write(f"{code}|{st}\n")
+    os.replace(tmp, progress_file)
 
     # 每个城市保存一次
     build_and_save_csv()
@@ -326,16 +342,16 @@ print("阶段二：采集岗位详情（逐条保存，可随时中断）...")
 print("=" * 50)
 
 df = build_and_save_csv()
+sec_idx = df.columns.get_loc("securityId")
 if "postDescription" not in df.columns:
-    sec_idx = df.columns.get_loc("securityId")
     df.insert(sec_idx + 1, "postDescription", "")
+if "activeTimeDesc" not in df.columns:
+    df.insert(sec_idx + 2, "activeTimeDesc", "")
 
 df["postDescription"] = df["postDescription"].astype(str).replace("nan", "")
-if "activeTimeDesc" in df.columns:
-    df["activeTimeDesc"] = df["activeTimeDesc"].astype(str).replace("nan", "")
+df["activeTimeDesc"] = df["activeTimeDesc"].astype(str).replace("nan", "")
 job_items = df.to_dict("records")
-pending_jobs = [j for j in job_items if j.get("postDescription") == ""]
-print(f"待获取详情：{len(pending_jobs)} / {len(job_items)} 个岗位")
+pending_jobs = [j for j in job_items if j.get("postDescription") == "" or j.get("activeTimeDesc") == ""]
 
 consecutive_detail_errors = 0
 
@@ -361,7 +377,7 @@ for i, job in enumerate(pending_jobs):
                 continue
 
             if is_need_login(data):
-                first_url = f"https://www.zhipin.com/web/geek/jobs?city=101010100&{URL_FILTERS}&query={KEYWORD}"
+                first_url = f"https://www.zhipin.com/web/geek/jobs?city={selected_cities[0][0]}&{URL_FILTERS}&query={KEYWORD}"
                 wait_for_login(first_url)
                 continue
 
