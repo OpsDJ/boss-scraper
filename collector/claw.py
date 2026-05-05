@@ -5,9 +5,12 @@ from DrissionPage import Chromium
 import os
 
 # ==========================================
-# 加载配置
+# 路径（基于脚本所在目录，而非 CWD）
 # ==========================================
-with open("../config.json", "r", encoding="utf-8") as f:
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(BASE_DIR)
+
+with open(os.path.join(PROJECT_DIR, "config.json"), "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
 SEARCH = CONFIG["search"]
@@ -23,9 +26,9 @@ RATE_LIMIT_COOLDOWN = COLLECT["rate_limit_cooldown"]
 
 job_list_api = "https://www.zhipin.com/wapi/zpgeek/search/joblist.json"
 job_detail_api = "https://www.zhipin.com/wapi/zpgeek/job/detail.json"
-output_csv = "../output/boss_jobs.csv"
-progress_file = "../output/city_progress.txt"
-city_codes_file = "../data/city_codes.json"
+output_csv = os.path.join(PROJECT_DIR, "output", "boss_jobs.csv")
+progress_file = os.path.join(PROJECT_DIR, "output", "city_progress.txt")
+city_codes_file = os.path.join(PROJECT_DIR, "data", "city_codes.json")
 
 # ==========================================
 # 加载城市列表

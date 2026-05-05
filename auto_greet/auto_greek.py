@@ -6,12 +6,15 @@ import os
 import requests
 
 # ==========================================
-# 加载配置
+# 路径（基于脚本所在目录，而非 CWD）
 # ==========================================
-with open("../config.json", "r", encoding="utf-8") as f:
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(BASE_DIR)
+
+with open(os.path.join(PROJECT_DIR, "config.json"), "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
-INPUT_CSV = "../output/boss_jobs.csv"
+INPUT_CSV = os.path.join(PROJECT_DIR, "output", "boss_jobs.csv")
 
 DS = CONFIG["deepseek"]
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", DS["api_key"])
@@ -31,9 +34,9 @@ KEYWORD = SEARCH["keyword"]
 job_detail_api = "https://www.zhipin.com/wapi/zpgeek/job/detail.json"
 friend_add_api = "https://www.zhipin.com/wapi/zpgeek/friend/add.json"
 search_base = "https://www.zhipin.com/web/geek/jobs"
-greeted_file = "../output/greeted.txt"
-eval_file = "../output/eval_results.json"
-approved_csv = "../output/approved_jobs.csv"
+greeted_file = os.path.join(PROJECT_DIR, "output", "greeted.txt")
+eval_file = os.path.join(PROJECT_DIR, "output", "eval_results.json")
+approved_csv = os.path.join(PROJECT_DIR, "output", "approved_jobs.csv")
 
 # ==========================================
 # 工具函数（不依赖浏览器）
