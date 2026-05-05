@@ -210,10 +210,19 @@ print("阶段二：LLM 评估岗位匹配度...")
 print("=" * 60)
 
 evaluations = {}
+eval_errors = 0
 if os.path.exists(eval_file):
     with open(eval_file, "r", encoding="utf-8") as f:
-        evaluations = json.load(f)
-    print(f"已加载 {len(evaluations)} 条历史评估")
+        raw_evals = json.load(f)
+    for sid, ev in raw_evals.items():
+        reason = ev.get("reason", "")
+        score = ev.get("score", 0)
+        # 网络异常的结果视为未评估，允许重试
+        if score == 0 and ("异常" in reason or "API错误" in reason or "Error" in reason):
+            eval_errors += 1
+            continue
+        evaluations[sid] = ev
+    print(f"已加载 {len(evaluations)} 条有效评估" + (f"（{eval_errors} 条异常将重试）" if eval_errors else ""))
 
 
 def evaluate_job(row):
@@ -260,8 +269,7 @@ BOSS活跃度：{row.get('activeTimeDesc', '')}
 - 如果薪资明确低于6K → decision=no
 - 如果薪资范围下限超过12K或上限超过18K（薪资过高，资历不够）→ decision=no
 - 薪资在6K-10K区间 → 加分
-- 如果是实习岗且无转正 → decision=no
-- 如果BOSS活跃度显示"半年前活跃""近半年活跃""近一个月"等很久未登录 → decision=no（HR大概率不会回复）"""
+- 如果是实习岗且无转正 → decision=no"""
 
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -277,27 +285,34 @@ BOSS活跃度：{row.get('activeTimeDesc', '')}
         "max_tokens": 200,
     }
 
-    try:
-        resp = requests.post(
-            f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
-        if resp.status_code != 200:
-            return "no", 0, f"API错误:{resp.status_code}"
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = requests.post(
+                f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 * attempt)
+                    continue
+                return "no", 0, f"API错误:{resp.status_code}"
 
-        content = resp.json()["choices"][0]["message"]["content"].strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1]
-            if content.endswith("```"):
-                content = content[:-3]
+            content = resp.json()["choices"][0]["message"]["content"].strip()
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1]
+                if content.endswith("```"):
+                    content = content[:-3]
 
-        result = json.loads(content)
-        return result.get("decision", "no"), int(result.get("score", 0)), result.get("reason", "")
+            result = json.loads(content)
+            return result.get("decision", "no"), int(result.get("score", 0)), result.get("reason", "")
 
-    except Exception as e:
-        return "no", 0, f"异常:{e}"
+        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+                continue
+            return "no", 0, f"异常:{e}"
 
 
 approved = []
@@ -321,6 +336,15 @@ for i, (idx, row) in enumerate(df.iterrows()):
         evaluations[sid] = {"decision": "no", "score": 0, "reason": "无职位描述"}
         rejected.append(row)
         print(f"[{i + 1}/{len(df)}] {row['jobName']} @ {row['brandName']} — 无描述，跳过")
+        continue
+
+    # 活跃度预筛选：只有白名单内的才进入 LLM 评估，省 token
+    active = str(row.get("activeTimeDesc", ""))
+    valid_active = {"刚刚活跃", "今日活跃", "本周活跃", "2周内活跃", "3日内活跃", "本月活跃"}
+    if active not in valid_active:
+        evaluations[sid] = {"decision": "no", "score": 1, "reason": f"BOSS活跃度不达标（{active or '未知'}）"}
+        rejected.append(row)
+        print(f"[{i + 1}/{len(df)}] {row['jobName']} @ {row['brandName']} — ❌ {active or '未知'}，跳过")
         continue
 
     decision, score, reason = evaluate_job(row)

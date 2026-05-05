@@ -254,11 +254,11 @@ def scrape_city(city_code, city_name):
         if new_count == 0 or consecutive_errors >= 5:
             break
 
-    # new_count==0 → 自然无多余数据，完整；其他一律视为遗漏
-    if new_count == 0:
-        status = "完成"
-    else:
+    # 连续异常中断 → 部分；其余（自然耗尽 / 达到最大页数）→ 完成
+    if consecutive_errors >= 5:
         status = "部分"
+    else:
+        status = "完成"
 
     return city_added, status
 
@@ -330,12 +330,11 @@ if "postDescription" not in df.columns:
     sec_idx = df.columns.get_loc("securityId")
     df.insert(sec_idx + 1, "postDescription", "")
 
-# 筛选尚未获取详情的岗位
-job_items = df.to_dict("records")
 df["postDescription"] = df["postDescription"].astype(str).replace("nan", "")
 if "activeTimeDesc" in df.columns:
     df["activeTimeDesc"] = df["activeTimeDesc"].astype(str).replace("nan", "")
-pending_jobs = [j for j in job_items if str(j.get("postDescription")) == ""]
+job_items = df.to_dict("records")
+pending_jobs = [j for j in job_items if j.get("postDescription") == ""]
 print(f"待获取详情：{len(pending_jobs)} / {len(job_items)} 个岗位")
 
 consecutive_detail_errors = 0
