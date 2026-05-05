@@ -4,42 +4,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Boss直聘 (Boss Zhipin) job listing scraper. Single-script pipeline that collects job listings from the search API then immediately fetches each job's detail description, outputting one complete CSV.
+Boss直聘 (Boss Zhipin) scraper + auto-greeting tool. Two modules:
+- `collector/` — multi-city job listing & detail collection → CSV
+- `auto_greet/` — collection → DeepSeek LLM evaluation → targeted greeting
+
+## Directory Structure
+
+```
+├── collector/claw.py        # 多城市岗位采集
+├── auto_greet/auto_greek.py # 采集→LLM评估→打招呼
+├── data/city_codes.json     # 374个城市代码
+├── output/                  # 运行时输出（gitignore）
+└── .venv/                   # 项目虚拟环境（gitignore）
+```
+
+Run scripts from their respective directories (paths use `../data/` and `../output/`).
 
 ## Dependencies
 
-- `pandas` — CSV I/O and DataFrame manipulation
-- `DrissionPage` — Chromium browser automation (Chinese-friendly Selenium alternative)
-
-No virtual environment or requirements file exists. Install globally or create one as needed.
+Install in `.venv`: `pip install pandas drissionpage requests`
 
 ## Scripts
 
-### `claw.py` — Main scraper (merged pipeline)
+### `collector/claw.py` — 多城市数据采集
 
-Three phases in one run:
+Loops through all 373 cities (from `data/city_codes.json`), collects job listings + details. Tracks progress in `output/city_progress.txt`, resumes on restart. Runs from collector directory.
 
-1. **Auto-login detection** — navigates to the search URL, waits 10s for a valid API response. If data flows → already logged in, proceeds. If timeout → prompts user to log in the popped-up browser, then automatically detects when login succeeds (no manual keypress needed).
-2. **Scroll & collect** — intercepts `joblist.json` API responses while auto-scrolling to trigger pagination. Deduplicates by `securityId`.
-3. **Fetch details** — for each collected job, calls `job/detail.json` to get `postDescription`.
-4. **Write CSV** — merges everything into `boss_jobs.csv`.
+Key config: `KEYWORD`, `MAX_PAGES`, `CITY_DELAY`. Run: `cd collector && python claw.py`.
 
-Session cookies are persisted in `./browser_data/` via `Chromium(user_data_path="./browser_data")`, so login is only needed once.
+### `auto_greet/auto_greek.py` — 智能打招呼
 
-**Configuration** (top of file):
-- `CITY_CODE` — city code (default: `101280700` 珠海)
-- `KEYWORD` — search keyword (default: `大数据`)
-- `MAX_PAGES` — max scroll pages (default: 20)
+Four phases: (1) collect job listings from target cities, (2) fetch detail descriptions, (3) evaluate each job via DeepSeek LLM against user profile defined in `MY_PROFILE`, (4) greet only approved jobs. Runs from auto_greet directory.
 
-**Run:**
-```bash
-python claw.py
-```
+Key config: `TARGET_CITIES`, `KEYWORD`, `URL_FILTERS`, `MY_PROFILE`, `DEEPSEEK_API_KEY`.
 
-**Output:** `boss_jobs.csv`
+Run: `cd auto_greet && set DEEPSEEK_API_KEY=sk-xxx && python auto_greek.py`.
 
-The old two-step scripts (`初步采集.py`, `深入采集.py`) are kept for reference.
+Output: `output/eval_results.json`, `output/approved_jobs.csv`, `output/greeted.txt`.
 
-## city.json
+## Boss直聘 API Notes
 
-Not part of the Boss直聘 pipeline. Appears to be a captured API response (JD.com product review data). Ignored by all scripts.
+- Job list: `GET /wapi/zpgeek/search/joblist.json` — paginated via scroll, intercepted by `tab.listen`
+- Job detail: `GET /wapi/zpgeek/job/detail.json?securityId=xxx`
+- Friend/add (greet): `POST /wapi/zpgeek/friend/add.json?securityId=xxx&jobId=xxx&lid=xxx` with body `sessionId=`
+- Rate limit: `code=31` or message containing "频繁"/"稍后"
+- Login expired: `code=3` or message containing "登录"/"未登录"
+- Search URL filter params: `experience`, `degree`, `industry`, `scale` (see URL_FILTERS comments)
