@@ -13,6 +13,8 @@ Boss直聘 (Boss Zhipin) scraper + auto-greeting tool. Two modules:
 ```
 ├── collector/claw.py        # 多城市岗位采集
 ├── auto_greet/auto_greek.py # 采集→LLM评估→打招呼
+├── scheduler.py             # 循环调度 — 完成后间隔N小时重跑，输出 时间_批次NNN
+├── config.json              # 统一配置（含 schedule.loop_interval_hours）
 ├── data/city_codes.json     # 374个城市代码
 ├── output/                  # 运行时输出（gitignore）
 └── .venv/                   # 项目虚拟环境（gitignore）
@@ -41,6 +43,17 @@ Key config: `TARGET_CITIES`, `KEYWORD`, `URL_FILTERS`, `MY_PROFILE`, `DEEPSEEK_A
 Run: `cd auto_greet && set DEEPSEEK_API_KEY=sk-xxx && python auto_greek.py`.
 
 Output: `output/eval_results.json`, `output/approved_jobs.csv`, `output/greeted.txt`.
+
+### `scheduler.py` — 循环任务调度
+
+Runs collector → auto_greet in an infinite loop. After each full run completes, sleeps for
+`schedule.loop_interval_hours` hours (default 6), then starts the next batch.
+
+Output files use timestamp+batch naming: `boss_jobs_<YYYYMMDD_HHMMSS>_batch<NNN>.csv`.
+
+Batch counter persisted in `output/batch_counter.txt` — survives restarts. Press Ctrl+C to stop gracefully.
+
+Run: `python scheduler.py` (from project root, with `.venv` activated).
 
 ## Boss直聘 API Notes
 
